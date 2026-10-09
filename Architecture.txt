@@ -1,0 +1,62 @@
+╔════════════════════════════════════════════════════════════════════════╗
+║                       AWS 3-Tier Flask Web App                         ║
+║                        Deployed Using Terrafor                         ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+                          ┌────────────────────────┐
+                          │   Internet Users       │
+                          └──────────┬─────────────┘
+                                     │  HTTP (80)
+                                     ▼
+                 ┌────────────────────────────────────────────┐
+                 │      Application Load Balancer (ALB)       │
+                 │      ────────────────▲─────────────────    │
+                 │   Public Subnets:    │                     │
+                 │   • 10.0.1.0/24 (AZ-A)                     │
+                 │   • 10.0.2.0/24 (AZ-B)                     │
+                 │   Security Group: ALB-SG (Port 80)         │
+                 └────────────────────────────────────────────┘
+                                     │
+                         Forwards traffic to target group
+                          on port 5000 (Flask app)
+                                     │
+           ┌─────────────────────────┴──────────────────────────┐
+           │                                                    │
+           ▼                                                    ▼
+┌──────────────────────────────┐                 ┌──────────────────────────────┐
+│ App Tier (AZ-A)              │                 │ App Tier (AZ-B)              │
+│ ──────────────────────────── │                 │ ──────────────────────────── │
+│ • EC2 (t2.micro)             │                 │ • EC2 (t2.micro)             │
+│ • Private Subnet: 10.0.3.0/24│                 │ • Private Subnet: 10.0.4.0/24│
+│ • Flask app on port 5000     │                 │ • Flask app on port 5000     │
+│ • Security Group: APP-SG     │                 │ • Security Group: APP-SG     │
+│ • Outbound via NAT Gateway   │                 │ • Outbound via NAT Gateway   │
+└──────────────────────────────┘                 └──────────────────────────────┘
+           │                                                    │
+           │ MySQL Port 3306                                    │
+           ▼                                                    ▼
+┌──────────────────────────────┐                 ┌──────────────────────────────┐
+│ DB Tier (RDS Primary - AZ-A) │                 │ DB Tier (RDS Standby - AZ-B) │
+│ ──────────────────────────── │                 │ ──────────────────────────── │
+│ • Amazon RDS (MySQL)         │                 │ • Automatic Failover Replica │
+│ • Multi-AZ enabled           │                 │ • Managed by AWS             │
+│ • Private Subnet: 10.0.5.0/24│                 │ • Private Subnet: 10.0.6.0/24│
+│ • Security Group: DB-SG      │                 │ • Security Group: DB-SG      │
+└──────────────────────────────┘                 └──────────────────────────────┘
+
+                   ▲
+                   │  Outbound Internet access (for updates)
+                   │
+        ┌──────────────────────────────────┐
+        │ NAT Gateway (AZ-A Public Subnet) │
+        │ Elastic IP attached              │
+        └──────────────────────────────────┘
+
+╔═══════════════════════════════════════════════════════════════════════╗
+║                   Infrastructure Provisioned by Terraform             ║
+║  • VPC, Subnets (Public/App/DB), Routing Tables                       ║
+║  • Internet & NAT Gateways                                            ║
+║  • Security Groups for ALB, App, DB                                   ║
+║  • ALB, EC2 (App Tier), RDS (DB Tier)                                 ║
+║  • Auto connection via user_data (git clone Flask repo)               ║
+╚═══════════════════════════════════════════════════════════════════════╝

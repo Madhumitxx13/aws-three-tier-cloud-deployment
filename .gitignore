@@ -1,0 +1,14 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+*.tfvars.json
+.env
+*.pem
+*.ppk
+*.key
+aws-credentials*
+crash.log
+crash.*.log
+.aws/
