@@ -57,7 +57,7 @@ aws-three-tier-cloud-deployment/
 │   └── provider.tf          # AWS provider and region configuration
 │
 ├── Architecture.txt         # Detailed ASCII diagram of the system's architecture
-├── Screenshots/             # Directory containing reference and verified deployment images
+├── assets/                  # Directory containing architecture, AWS console, and deployment verification images
 ├── .gitignore               # Excludes sensitive files, credentials, and state from source control
 └── README.md                # Project documentation and setup guide
 ```
@@ -128,23 +128,85 @@ terraform destroy -auto-approve
 
 ---
 
-## Results and Evidence
+## Representative Results
 
-*Note: The deployment and database connection tests for my specific implementation are currently **PENDING VERIFICATION**.* 
+This section demonstrates the deployment verification and infrastructure evidence across all tiers of the 3-Tier AWS Architecture.
 
-### Reference Screenshots
-The following image is a reference screenshot provided by the original author to illustrate the expected application output once deployed.
-> ![Reference: Flask App Output](Screenshots/flask-Output.png)
+---
 
-### Verified Implementation (Pending)
-*[PLACEHOLDER: Insert screenshot of the AWS Console showing the deployed VPC, EC2, and RDS instances here]*
-> Evidence of successful infrastructure provisioning.
+### 1. Application & Presentation Tier
+The Flask application is publicly reachable via the Application Load Balancer (ALB) endpoint, routing incoming HTTP traffic to the private application instances.
 
-*[PLACEHOLDER: Insert screenshot of the browser accessing the Application Load Balancer DNS endpoint here]*
-> Evidence that the ALB successfully routes traffic to the Flask application.
+#### Web Application Live Output
+![Flask Application Output](assets/flask-Output.png)
+*Figure 1: Flask web application responding successfully through the Application Load Balancer.*
 
-*[PLACEHOLDER: Insert screenshot/log of the application successfully reading/writing to the RDS MySQL database here]*
-> Evidence of successful database integration between the Application Tier and Database Tier.
+#### Application Load Balancer Configuration
+![Application Load Balancer](<assets/Load Balancer.png>)
+*Figure 2: AWS Application Load Balancer active and distributing traffic across target instances in multiple Availability Zones.*
+
+---
+
+### 2. Application Tier (EC2 Compute Instances)
+The compute tier runs Python Flask instances in isolated private application subnets, ensuring no direct public internet exposure.
+
+#### EC2 Application Instances
+![EC2 Instances](assets/EC2.png)
+*Figure 3: EC2 application instances healthy and running across multiple Availability Zones.*
+
+---
+
+### 3. Database Tier (Amazon RDS MySQL)
+Managed relational database configured with Multi-AZ redundancy within dedicated, secure private database subnets.
+
+#### Multi-AZ RDS Database Instance
+![RDS DB Instance](<assets/RDS DB.png>)
+*Figure 4: Amazon RDS MySQL instance deployed in Multi-AZ mode for automated failover and high availability.*
+
+---
+
+### 4. Networking & VPC Infrastructure
+Virtual Private Cloud (VPC) configured with public subnets, private application subnets, and private database subnets with strict routing tables.
+
+#### VPC Resource Map
+![VPC Resource Map](<assets/My VPC Resource Map.png>)
+*Figure 5: Complete AWS VPC Resource Map illustrating subnet distribution, route table associations, and internet/NAT gateways.*
+
+#### VPC Configuration
+![VPC Configuration](<assets/VPC 01.png>)
+*Figure 6: Custom VPC configured with isolated IPv4 CIDR block.*
+
+#### Subnets Allocation
+![Subnets](assets/Subnets.png)
+*Figure 7: Dual-AZ Subnets categorized by tier (Public Web, Private App, Private DB).*
+
+#### Route Tables & Association
+![Route Tables](<assets/Route Tables.png>)
+*Figure 8: Route tables ensuring strict tier-based network isolation and routing.*
+
+---
+
+### 5. Terraform Infrastructure as Code (IaC) Execution
+End-to-end automation logs showcasing configuration validation, planning, execution, and outputs.
+
+#### Terraform Configuration Validation
+![Terraform Validate Output](<assets/Terraform Validate Output.png>)
+*Figure 9: `terraform validate` verifying syntax and configuration correctness.*
+
+#### Terraform Execution Plan
+![Terraform Plan](<assets/Terraform Plan.png>)
+![Terraform Plan Output](<assets/Terraform Plan out.png>)
+*Figure 10: `terraform plan` execution graph outlining resources scheduled for provisioning.*
+
+#### Terraform Apply & Infrastructure Provisioning
+![Terraform Apply in Progress](<assets/Terraform Apply 01.png>)
+![Terraform Apply Output](<assets/Terraform Apply Output.png>)
+*Figure 11: `terraform apply` successfully creating all VPC, ALB, EC2, and RDS resources.*
+
+#### Terraform Outputs & Resource Summary
+![Terraform Output](<assets/Terrafom Output.png>)
+![Terraform State Overview](<assets/Terraform 02.png>)
+*Figure 12: Terraform outputs exposing ALB DNS name, EC2 private IPs, and RDS database endpoint.*
 
 ---
 
