@@ -71,9 +71,13 @@ Security is a primary focus of this project. The following practices have been s
 - **`.gitignore` Enforced:** Terraform state files (`*.tfstate`), variable files (`*.tfvars`), environment files (`.env`), and AWS credentials/private keys must never be committed to GitHub. 
 - **Network Isolation:** Only the ALB is exposed to the internet. EC2 and RDS instances sit in private subnets with restricted Security Groups.
 
+- **SSM Parameter Store & IAM Roles:** The database endpoint and credentials are mathematically injected directly into EC2 via AWS Systems Manager (SSM) Parameter Store using an IAM Instance Profile. No credentials live in `.env` files or user_data logs.
+
 ### Known Limitations
-- **Application Repository Unavailable:** The `flask-app` repository originally used in the EC2 `user_data` script is no longer available (404 Not Found). Deployment of the EC2 instances will succeed, but the web application will fail to start.
-- **Database Connection Strings:** The `user_data` script currently lacks the environment variables required to pass the RDS endpoint and credentials to the application.
+- **No HTTPS Encryption:** The ALB is currently configured on port 80. A production deployment would require ACM certificates for port 443.
+
+### Cost Considerations
+This project provisions resources that incur AWS charges. While `t2.micro` EC2 instances and the `db.t3.micro` RDS instance may fall under the AWS Free Tier for eligible accounts, the NAT Gateway, Application Load Balancer, and any data transfer will generate costs immediately. Always destroy the infrastructure after testing.
 
 ---
 

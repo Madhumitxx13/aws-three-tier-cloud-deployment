@@ -16,6 +16,68 @@ data "aws_ami" "amazon_linux_2" {
   }
 }
 
+data "aws_caller_identity" "current" {}
+
+resource "random_id" "snapshot_id" {
+  byte_length = 4
+}
+
+# --- IAM Role for EC2 to Access SSM ---
+resource "aws_iam_role" "app_role" {
+  name = "flask-app-role-${random_id.snapshot_id.hex}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_policy" "ssm_access" {
+  name        = "flask-ssm-access-${random_id.snapshot_id.hex}"
+  description = "Allow EC2 to read SSM parameters"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ]
+        Resource = [
+          aws_ssm_parameter.db_host.arn,
+          aws_ssm_parameter.db_user.arn,
+          aws_ssm_parameter.db_password.arn
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt"
+        ]
+        Resource = "arn:aws:kms:${var.aws_region}:${data.aws_caller_identity.current.account_id}:key/*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "ssm_attach" {
+  role       = aws_iam_role.app_role.name
+  policy_arn = aws_iam_policy.ssm_access.arn
+}
+
+resource "aws_iam_instance_profile" "app_profile" {
+  name = "flask-app-profile-${random_id.snapshot_id.hex}"
+  role = aws_iam_role.app_role.name
+}
+
 # --- VPC & Networking ---
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -206,14 +268,68 @@ resource "aws_instance" "app_server_a" {
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.app_a.id
   vpc_security_group_ids = [aws_security_group.app_sg.id]
+  iam_instance_profile   = aws_iam_instance_profile.app_profile.name
+  depends_on             = [aws_iam_role_policy_attachment.ssm_attach, aws_ssm_parameter.db_host, aws_ssm_parameter.db_user, aws_ssm_parameter.db_password]
   user_data              = <<-EOF
               #!/bin/bash
-              yum install -y python3 git
-              cd /home/ec2-user
-              git clone https://github.com/KrishnaaCloud/flask-app
-              cd flask-app
+              yum update -y
+              yum install -y python3 jq
+
+              mkdir -p /home/ec2-user/flask-app
+              cd /home/ec2-user/flask-app
+
+              echo "${base64encode(file("${path.module}/../app/app.py"))}" | base64 -d > app.py
+              echo "${base64encode(file("${path.module}/../app/requirements.txt"))}" | base64 -d > requirements.txt
+
               pip3 install -r requirements.txt
-              nohup python3 app.py > app.log 2>&1 &
+
+              REGION="${var.aws_region}"
+
+              get_ssm_param() {
+                for i in {1..5}; do
+                  VAL=$(aws ssm get-parameter --name "\$1" --region "\$REGION" --with-decryption --query "Parameter.Value" --output text 2>/dev/null)
+                  if [ -n "\$VAL" ]; then
+                    echo "\$VAL"
+                    return 0
+                  fi
+                  sleep 5
+                done
+                return 1
+              }
+
+              DB_HOST=$(get_ssm_param "/flask-app/db_host")
+              DB_USER=$(get_ssm_param "/flask-app/db_user")
+              DB_PASSWORD=$(get_ssm_param "/flask-app/db_password")
+
+              cat << ENVEOF > .env
+              DB_HOST=\$DB_HOST
+              DB_USER=\$DB_USER
+              DB_PASSWORD=\$DB_PASSWORD
+              DB_NAME=flaskdb
+              ENVEOF
+
+              chmod 600 .env
+              chown ec2-user:ec2-user .env app.py requirements.txt
+
+              cat << SVCEOF > /etc/systemd/system/flaskapp.service
+              [Unit]
+              Description=Flask Application
+              After=network.target
+
+              [Service]
+              User=ec2-user
+              WorkingDirectory=/home/ec2-user/flask-app
+              EnvironmentFile=/home/ec2-user/flask-app/.env
+              ExecStart=/usr/local/bin/flask run --host=0.0.0.0 --port=5000
+              Restart=always
+
+              [Install]
+              WantedBy=multi-user.target
+              SVCEOF
+
+              systemctl daemon-reload
+              systemctl enable flaskapp
+              systemctl start flaskapp
               EOF
   tags = {
     Name = "app-server-a"
@@ -225,6 +341,8 @@ resource "aws_instance" "app_server_b" {
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.app_b.id
   vpc_security_group_ids = [aws_security_group.app_sg.id]
+  iam_instance_profile   = aws_iam_instance_profile.app_profile.name
+  depends_on             = [aws_iam_role_policy_attachment.ssm_attach, aws_ssm_parameter.db_host, aws_ssm_parameter.db_user, aws_ssm_parameter.db_password]
   user_data              = aws_instance.app_server_a.user_data
   tags = {
     Name = "app-server-b"
@@ -246,7 +364,7 @@ resource "aws_lb_target_group" "app_tg" {
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
   health_check {
-    path = "/"
+    path = "/health"
     port = "5000"
   }
 }
@@ -284,13 +402,31 @@ resource "aws_db_instance" "mysql" {
   engine                    = "mysql"
   instance_class            = "db.t3.micro"
   allocated_storage         = 20
+  db_name                   = "flaskdb"
   username                  = var.db_username
   password                  = var.db_password
   db_subnet_group_name      = aws_db_subnet_group.db_subnet_group.id
   vpc_security_group_ids    = [aws_security_group.db_sg.id]
   multi_az                  = true
   skip_final_snapshot       = false
-  final_snapshot_identifier = "flask-db-final-snapshot"
+  final_snapshot_identifier = "flask-db-final-snapshot-${random_id.snapshot_id.hex}"
+}
+
+# --- SSM Parameters ---
+resource "aws_ssm_parameter" "db_password" {
+  name  = "/flask-app/db_password"
+  type  = "SecureString"
+  value = var.db_password
+}
+resource "aws_ssm_parameter" "db_host" {
+  name  = "/flask-app/db_host"
+  type  = "String"
+  value = aws_db_instance.mysql.address
+}
+resource "aws_ssm_parameter" "db_user" {
+  name  = "/flask-app/db_user"
+  type  = "String"
+  value = var.db_username
 }
 
 ############################################
