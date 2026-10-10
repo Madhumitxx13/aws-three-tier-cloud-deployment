@@ -2,9 +2,23 @@
 # MAIN.TF — 3-TIER WEB APPLICATION (AWS)
 ############################################
 
+# --- Data Sources ---
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+data "aws_ami" "amazon_linux_2" {
+  most_recent = true
+  owners      = ["amazon"]
+  filter {
+    name   = "name"
+    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
+  }
+}
+
 # --- VPC & Networking ---
 resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
+  cidr_block           = var.vpc_cidr
   enable_dns_support   = true
   enable_dns_hostnames = true
   tags = {
@@ -23,8 +37,8 @@ resource "aws_internet_gateway" "igw" {
 # --- Public Subnets (for ALB + Bastion) ---
 resource "aws_subnet" "public_a" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.1.0/24"
-  availability_zone       = "ap-south-1a"
+  cidr_block              = var.public_subnet_cidrs[0]
+  availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
   tags = {
     Name = "public-subnet-a"
@@ -33,8 +47,8 @@ resource "aws_subnet" "public_a" {
 
 resource "aws_subnet" "public_b" {
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.2.0/24"
-  availability_zone       = "ap-south-1b"
+  cidr_block              = var.public_subnet_cidrs[1]
+  availability_zone       = data.aws_availability_zones.available.names[1]
   map_public_ip_on_launch = true
   tags = {
     Name = "public-subnet-b"
@@ -44,8 +58,8 @@ resource "aws_subnet" "public_b" {
 # --- Private App Subnets (for EC2 App Tier) ---
 resource "aws_subnet" "app_a" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.3.0/24"
-  availability_zone = "ap-south-1a"
+  cidr_block        = var.private_app_subnet_cidrs[0]
+  availability_zone = data.aws_availability_zones.available.names[0]
   tags = {
     Name = "app-subnet-a"
   }
@@ -53,8 +67,8 @@ resource "aws_subnet" "app_a" {
 
 resource "aws_subnet" "app_b" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.4.0/24"
-  availability_zone = "ap-south-1b"
+  cidr_block        = var.private_app_subnet_cidrs[1]
+  availability_zone = data.aws_availability_zones.available.names[1]
   tags = {
     Name = "app-subnet-b"
   }
@@ -63,8 +77,8 @@ resource "aws_subnet" "app_b" {
 # --- Private DB Subnets (for RDS) ---
 resource "aws_subnet" "db_a" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.5.0/24"
-  availability_zone = "ap-south-1a"
+  cidr_block        = var.private_db_subnet_cidrs[0]
+  availability_zone = data.aws_availability_zones.available.names[0]
   tags = {
     Name = "db-subnet-a"
   }
@@ -72,8 +86,8 @@ resource "aws_subnet" "db_a" {
 
 resource "aws_subnet" "db_b" {
   vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.6.0/24"
-  availability_zone = "ap-south-1b"
+  cidr_block        = var.private_db_subnet_cidrs[1]
+  availability_zone = data.aws_availability_zones.available.names[1]
   tags = {
     Name = "db-subnet-b"
   }
@@ -188,11 +202,11 @@ resource "aws_security_group" "db_sg" {
 
 # --- EC2 for App Tier ---
 resource "aws_instance" "app_server_a" {
-  ami           = "ami-0f5ee92e2d63afc18" # Amazon Linux 2
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.app_a.id
+  ami                    = data.aws_ami.amazon_linux_2.id # Amazon Linux 2
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.app_a.id
   vpc_security_group_ids = [aws_security_group.app_sg.id]
-  user_data = <<-EOF
+  user_data              = <<-EOF
               #!/bin/bash
               yum install -y python3 git
               cd /home/ec2-user
@@ -207,11 +221,11 @@ resource "aws_instance" "app_server_a" {
 }
 
 resource "aws_instance" "app_server_b" {
-  ami           = "ami-0f5ee92e2d63afc18"
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.app_b.id
+  ami                    = data.aws_ami.amazon_linux_2.id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.app_b.id
   vpc_security_group_ids = [aws_security_group.app_sg.id]
-  user_data = aws_instance.app_server_a.user_data
+  user_data              = aws_instance.app_server_a.user_data
   tags = {
     Name = "app-server-b"
   }
@@ -266,16 +280,17 @@ resource "aws_db_subnet_group" "db_subnet_group" {
 }
 
 resource "aws_db_instance" "mysql" {
-  identifier              = "flask-db"
-  engine                  = "mysql"
-  instance_class           = "db.t3.micro"
-  allocated_storage        = 20
-  username                 = var.db_username
-  password                 = var.db_password
-  db_subnet_group_name     = aws_db_subnet_group.db_subnet_group.id
-  vpc_security_group_ids   = [aws_security_group.db_sg.id]
-  multi_az                 = true
-  skip_final_snapshot      = true
+  identifier                = "flask-db"
+  engine                    = "mysql"
+  instance_class            = "db.t3.micro"
+  allocated_storage         = 20
+  username                  = var.db_username
+  password                  = var.db_password
+  db_subnet_group_name      = aws_db_subnet_group.db_subnet_group.id
+  vpc_security_group_ids    = [aws_security_group.db_sg.id]
+  multi_az                  = true
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "flask-db-final-snapshot"
 }
 
 ############################################

@@ -27,7 +27,7 @@ The architecture follows a strict 3-tier design deployed within a custom VPC spa
 
 1. **Presentation Tier (Public Subnets):** An Internet Gateway allows traffic in. An Application Load Balancer (ALB) receives HTTP requests and securely distributes them.
 2. **Application Tier (Private Subnets):** EC2 instances host a Python Flask web application. These instances do not have public IP addresses and are only accessible via the ALB.
-3. **Database Tier (Private Subnets):** A Multi-AZ Amazon RDS (MySQL) instance serves as the data layer. It is fully isolated from the internet and only accepts traffic from the Application tier where database integration is configured.
+3. **Database Tier (Private Subnets):** A Multi-AZ Amazon RDS (MySQL) instance serves as the data layer. It is fully isolated from the internet and only accepts traffic from the Application tier. *(Note: While network integration is fully configured via security groups, application-level database integration is currently pending because connection parameters are not yet passed to the EC2 instances, and the original Flask app repository is unavailable).*
 
 ---
 
@@ -70,6 +70,10 @@ Security is a primary focus of this project. The following practices have been s
 - **No Hard-coded Secrets:** Database passwords and AWS credentials are not stored in source code.
 - **`.gitignore` Enforced:** Terraform state files (`*.tfstate`), variable files (`*.tfvars`), environment files (`.env`), and AWS credentials/private keys must never be committed to GitHub. 
 - **Network Isolation:** Only the ALB is exposed to the internet. EC2 and RDS instances sit in private subnets with restricted Security Groups.
+
+### Known Limitations
+- **Application Repository Unavailable:** The `flask-app` repository originally used in the EC2 `user_data` script is no longer available (404 Not Found). Deployment of the EC2 instances will succeed, but the web application will fail to start.
+- **Database Connection Strings:** The `user_data` script currently lacks the environment variables required to pass the RDS endpoint and credentials to the application.
 
 ---
 
@@ -130,7 +134,7 @@ terraform destroy -auto-approve
 
 ## Representative Results
 
-This section demonstrates the deployment verification and infrastructure evidence across all tiers of the 3-Tier AWS Architecture.
+This section demonstrates the deployment verification and infrastructure evidence across all tiers of the 3-Tier AWS Architecture. *(Note: The screenshots provided below are inherited from the original author's reference implementation to illustrate the expected outcome, as my current execution does not include a live deployment of the web app.)*
 
 ---
 
@@ -204,7 +208,7 @@ End-to-end automation logs showcasing configuration validation, planning, execut
 *Figure 11: `terraform apply` successfully creating all VPC, ALB, EC2, and RDS resources.*
 
 #### Terraform Outputs & Resource Summary
-![Terraform Output](<assets/Terrafom Output.png>)
+![Terraform Output](<assets/Terraform Output.png>)
 ![Terraform State Overview](<assets/Terraform 02.png>)
 *Figure 12: Terraform outputs exposing ALB DNS name, EC2 private IPs, and RDS database endpoint.*
 
